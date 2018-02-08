@@ -1,0 +1,8 @@
+version: '3'
+
+services:
+  ciscoasa_honeypot:
+    build: .
+    ports:
+      - 80:8443
+      - 500:5000
