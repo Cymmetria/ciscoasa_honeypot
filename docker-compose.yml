@@ -5,4 +5,4 @@ services:
     build: .
     ports:
       - 80:8443
-      - 500:5000
+      - "500:5000/udp"
