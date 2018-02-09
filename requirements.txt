@@ -2,4 +2,4 @@ click
 cryptography
 docopt
 rsa
-git+git://github.com/paralax/ike.git@patch-1
+git+git://github.com/Cymmetria/ike
