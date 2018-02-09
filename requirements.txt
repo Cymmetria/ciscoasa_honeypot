@@ -1,1 +1,2 @@
-git+git://github.com/Cymmetria/ike.git
+click
+git+git://github.com/Cymmetria/ike
