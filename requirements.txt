@@ -1,2 +1,2 @@
-click
+click==6.7
 git+git://github.com/Cymmetria/ike
