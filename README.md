@@ -1,4 +1,4 @@
-# Cicso ASA honeypot
+# Cisco ASA honeypot
 Cymmetria Research, 2018.
 
 https://www.cymmetria.com/
