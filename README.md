@@ -33,7 +33,7 @@ Options:
   
 Optional settings for hpfeeds logging:  
   --hpfserver	TEXT			hpfeeds Server
-  --hpfport		INTEGER			hpfeeds Port
+  --hpfport     INTEGER			hpfeeds Port
   --hpfident	TEXT			hpfeeds Ident
   --hpfsecret	TEXT			hpfeeds Secret
   --hofchannel	TEXT			hpfeeds Channel
