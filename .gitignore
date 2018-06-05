@@ -3,3 +3,4 @@
 *.pem
 .ropeproject
 venv
+.idea/

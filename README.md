@@ -29,8 +29,17 @@ Options:
                           cert if not supplied)
   -v, --verbose           Verbose logging
   --help                  Show this message and exit.
+  
+  
+Optional settings for hpfeeds logging:  
+  --hpfserver	TEXT			hpfeeds Server
+  --hpfport		INTEGER			hpfeeds Port
+  --hpfident	TEXT			hpfeeds Ident
+  --hpfsecret	TEXT			hpfeeds Secret
+  --hofchannel	TEXT			hpfeeds Channel
+  --serverid	TEXT			hpfeeds Serverid
 ```
-
+The hpfeeds logging options can also be set by using the following os environment variables: HPFEEDS_SERVER, HPFEEDS_PORT, HPFEEDS_IDENT, HPFEEDS_SECRET, HPFEEDS_CHANNEL, SERVERID
 
 See also
 --------

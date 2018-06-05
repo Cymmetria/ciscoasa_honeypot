@@ -11,10 +11,35 @@ from http.server import HTTPServer
 from socketserver import ThreadingMixIn
 from http.server import SimpleHTTPRequestHandler
 import ike_server
+import datetime
 
 
 class NonBlockingHTTPServer(ThreadingMixIn, HTTPServer):
     pass
+
+class hpflogger:
+    def __init__(self, hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid, verbose):
+        self.hpfserver=hpfserver
+        self.hpfport=hpfport
+        self.hpfident=hpfident
+        self.hpfsecret=hpfsecret
+        self.hpfchannel=hpfchannel
+        self.serverid=serverid
+        self.hpc=None
+        self.verbose=verbose
+        if (self.hpfserver and self.hpfport and self.hpfident and self.hpfport and self.hpfchannel and self.serverid):
+            import hpfeeds
+            try:
+                self.hpc = hpfeeds.new(self.hpfserver, self.hpfport, self.hpfident, self.hpfsecret)
+                logger.debug("Logging to hpfeeds using server: {0}, channel {1}.".format(self.hpfserver, self.hpfchannel))
+            except (hpfeeds.FeedException, socket.error, hpfeeds.Disconnect):
+                logger.critical("hpfeeds connection not successful")
+
+    def log(self, level, message):
+        if self.hpc:
+            if level in ['debug', 'info'] and not self.verbose:
+                return
+            self.hpc.publish(self.hpfchannel, "["+self.serverid+"] ["+level+"] ["+datetime.datetime.now().isoformat() +"] "  + str(message))
 
 
 def header_split(h):
@@ -23,6 +48,7 @@ def header_split(h):
 
 class WebLogicHandler(SimpleHTTPRequestHandler):
     logger = None
+    hpfl = None
 
     protocol_version = "HTTP/1.1"
 
@@ -152,6 +178,10 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
                           (self.client_address[0],
                            self.log_date_time_string(),
                            format % args))
+        self.hpfl.log('debug', "%s - - [%s] %s" %
+                          (self.client_address[0],
+                           self.log_date_time_string(),
+                           format % args))
 
     def handle_one_request(self):
         """Handle a single HTTP request.
@@ -202,17 +232,36 @@ if __name__ == '__main__':
     @click.option('-c', '--cert', default=None, help='Certificate File Path (will generate self signed '
                                                      'cert if not supplied)')
     @click.option('-v', '--verbose', default=False, help='Verbose logging', is_flag=True)
-    def start(host, port, ike_port, enable_ssl, cert, verbose):
+
+    # hpfeeds options
+    @click.option('--hpfserver', default=os.environ.get('HPFEEDS_SERVER'), help='HPFeeds Server')
+    @click.option('--hpfport', default=os.environ.get('HPFEEDS_PORT'), help='HPFeeds Port', type=click.INT)
+    @click.option('--hpfident', default=os.environ.get('HPFEEDS_IDENT'), help='HPFeeds Ident')
+    @click.option('--hpfsecret', default=os.environ.get('HPFEEDS_SECRET'), help='HPFeeds Secret')
+    @click.option('--hpfchannel', default=os.environ.get('HPFEEDS_CHANNEL'), help='HPFeeds Channel')
+    @click.option('--serverid', default=os.environ.get('SERVERID'), help='Verbose logging')
+
+
+    def start(host, port, ike_port, enable_ssl, cert, verbose, hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid):
         """
            A low interaction honeypot for the Cisco ASA component capable of detecting CVE-2018-0101,
            a DoS and remote code execution vulnerability
         """
+
+        hpfl=hpflogger(hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid, verbose)
+
         def alert(cls, host, port, payloads):
             logger.critical({
                 'src': host,
                 'spt': port,
                 'data': payloads,
             })
+            #log to hpfeeds
+            hpfl.log("critical", {
+                 'src': host,
+                 'spt': port,
+                 'data': payloads,
+             })
 
         if verbose:
             logger.setLevel(logging.DEBUG)
@@ -220,6 +269,7 @@ if __name__ == '__main__':
         requestHandler = WebLogicHandler
         requestHandler.alert_function = alert
         requestHandler.logger = logger
+        requestHandler.hpfl = hpfl
 
         def log_date_time_string():
             """Return the current time formatted for logging."""
@@ -229,7 +279,7 @@ if __name__ == '__main__':
             return s
 
         def ike():
-            ike_server.start(host, ike_port, alert, logger)
+            ike_server.start(host, ike_port, alert, logger, hpfl)
         t = threading.Thread(target=ike)
         t.daemon = True
         t.start()
@@ -243,11 +293,15 @@ if __name__ == '__main__':
             httpd.socket = ssl.wrap_socket(httpd.socket, certfile=cert, server_side=True)
 
         logger.info('Starting server on port {:d}/tcp, use <Ctrl-C> to stop'.format(port))
+        hpfl.log('info', 'Starting server on port {:d}/tcp, use <Ctrl-C> to stop'.format(port))
+
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             pass
         logger.info('Stopping server.')
+        hpfl.log('info', 'Stopping server.')
+
         httpd.server_close()
 
     start()
