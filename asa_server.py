@@ -40,7 +40,6 @@ class hpflogger:
         if self.hpc:
             if level in ['debug', 'info'] and not self.verbose:
                 return
-            message['timestamp'] = datetime.datetime.now().isoformat()
             message['serverid']= self.serverid
             self.hpc.publish(self.hpfchannel, json.dumps(message))
 
@@ -52,6 +51,8 @@ def header_split(h):
 class WebLogicHandler(SimpleHTTPRequestHandler):
     logger = None
     hpfl = None
+    data = None
+    timestamp=None
 
     protocol_version = "HTTP/1.1"
 
@@ -126,14 +127,14 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         data_len = int(self.headers.get('Content-length', 0))
-        data = self.rfile.read(data_len) if data_len else b''
+        self.data = self.rfile.read(data_len) if data_len else b''
         body = self.RESPONSE
-        if self.EXPLOIT_STRING in data:
-            xml = ElementTree.fromstring(data)
+        if self.EXPLOIT_STRING in self.data:
+            xml = ElementTree.fromstring(self.data)
             payloads = []
             for x in xml.iter('host-scan-reply'):
                 payloads.append(x.text)
-            self.alert_function(self.client_address[0], self.client_address[1], self.connection.getsockname()[0], self.connection.getsockname()[1], payloads)
+            self.alert_function(self.client_address[0], self.client_address[1], self.connection.getsockname()[0], self.connection.getsockname()[1], payloads, self.timestamp, "CVE-2018-0101")
 
         elif self.path == '/':
             self.redirect('/+webvpn+/index.html')
@@ -176,23 +177,36 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
             return self.send_file('wrong_url.html', 404)
 
     def log_message(self, format, *args):
+        postdata=None
+        if self.data:
+            postdata=self.data.decode("utf-8")
+
         self.logger.debug("%s - - [%s] %s" %
                           (self.client_address[0],
                            self.log_date_time_string(),
                            format % args))
-        self.hpfl.log("debug", {
-                      'category': 'info',
+
+        # hpfeeds logging with more information
+        rheaders = {}
+        for k,v in self.headers._headers:
+            rheaders[k] = v
+        self.hpfl.log("info", {
+                      'category': 'request',
+                      'timestamp': self.timestamp,
                       'src_ip': self.client_address[0],
                       'src_port': self.client_address[1],
                       'dest_ip': self.connection.getsockname()[0],
                       'dest_port': self.connection.getsockname()[1],
-                      'message':  str(args)
+                      'raw_requestline':  self.raw_requestline.decode("utf-8"),
+                      'header': rheaders,
+                      'postdata': postdata
                     })
 
     def handle_one_request(self):
         """Handle a single HTTP request.
         Overriden to not send 501 errors
         """
+        self.timestamp=datetime.datetime.now().isoformat()
         self.close_connection = True
         try:
             self.raw_requestline = self.rfile.readline(65537)
@@ -256,22 +270,24 @@ if __name__ == '__main__':
 
         hpfl=hpflogger(hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid, verbose)
 
-        def alert(cls, host, port, localip, localport, payloads):
+        def alert(cls, host, port, localip, localport, payloads, timestamp, vuln):
             logger.critical({
                 'src_ip': host,
                 'src_port': port,
                 'dest_ip': localip,
                 'dest_port': localport,
-                'data': payloads
+                'data': payloads,
             })
             #log to hpfeeds
-            hpfl.log("critical", {
-                 'category': 'critical',
+            hpfl.log("exploit", {
+                 'category': 'exploit',
+                 'vulnerability': vuln,
+                 'timestamp': timestamp,
                  'src_ip': host,
                  'src_port': port,
                  'dest_ip': localip,
                  'dest_port': localport,
-                 'data': payloads
+                 'data': payloads,
              })
 
         if verbose:
