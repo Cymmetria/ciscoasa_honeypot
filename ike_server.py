@@ -54,13 +54,11 @@ class IKEResponder(asyncio.DatagramProtocol):
         except Exception:
             logger = logging.getLogger()
             logger.debug("unsupported packet")
-            hpfl.log('debug', 'IKE unsupported packet')
             del self.clients[address]
 
 
 def start(host, port, alert, logger, hpfl):
     logger.info('Starting server on port {:d}/udp'.format(port))
-    hpfl.log('info', 'Starting server on port {:d}/udp'.format(port))
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     IKEResponder.alert = alert
