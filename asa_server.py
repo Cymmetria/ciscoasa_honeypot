@@ -276,7 +276,7 @@ if __name__ == '__main__':
                 'src_port': port,
                 'dest_ip': localip,
                 'dest_port': localport,
-                'data': payloads,
+                'data': payloads
             })
             #log to hpfeeds
             hpfl.log("exploit", {
@@ -287,7 +287,7 @@ if __name__ == '__main__':
                  'src_port': port,
                  'dest_ip': localip,
                  'dest_port': localport,
-                 'data': payloads,
+                 'data': payloads
              })
 
         if verbose:
