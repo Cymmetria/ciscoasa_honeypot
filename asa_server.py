@@ -53,6 +53,10 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
     hpfl = None
     data = None
     timestamp=None
+    req_classification = "request"
+    vulnerability = None
+    payload=None
+    req_category="info"
 
     protocol_version = "HTTP/1.1"
 
@@ -134,7 +138,11 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
             payloads = []
             for x in xml.iter('host-scan-reply'):
                 payloads.append(x.text)
-            self.alert_function(self.client_address[0], self.client_address[1], self.connection.getsockname()[0], self.connection.getsockname()[1], payloads, self.timestamp, "CVE-2018-0101")
+            self.alert_function(self.client_address[0], self.client_address[1], self.connection.getsockname()[0], self.connection.getsockname()[1], payloads)
+            self.req_classification= "exploit"
+            self.vulnerability = "CVE-2018-0101"
+            self.payload=payloads
+            self.req_category="critical"
 
         elif self.path == '/':
             self.redirect('/+webvpn+/index.html')
@@ -190,16 +198,18 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
         rheaders = {}
         for k,v in self.headers._headers:
             rheaders[k] = v
-        self.hpfl.log("info", {
-                      'category': 'request',
+        self.hpfl.log(self.req_category, {
+                      'classification': self.req_classification,
                       'timestamp': self.timestamp,
+                      'vulnerability': self.vulnerability,
                       'src_ip': self.client_address[0],
                       'src_port': self.client_address[1],
                       'dest_ip': self.connection.getsockname()[0],
                       'dest_port': self.connection.getsockname()[1],
                       'raw_requestline':  self.raw_requestline.decode("utf-8"),
                       'header': rheaders,
-                      'postdata': postdata
+                      'postdata': postdata,
+                      'exploitpayload': self.payload
                     })
 
     def handle_one_request(self):
@@ -270,25 +280,15 @@ if __name__ == '__main__':
 
         hpfl=hpflogger(hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid, verbose)
 
-        def alert(cls, host, port, localip, localport, payloads, timestamp, vuln):
+        def alert(cls, host, port, localip, localport, payloads):
             logger.critical({
                 'src_ip': host,
                 'src_port': port,
                 'dest_ip': localip,
                 'dest_port': localport,
-                'data': payloads
+                'exploitdata': payloads
             })
-            #log to hpfeeds
-            hpfl.log("exploit", {
-                 'category': 'exploit',
-                 'vulnerability': vuln,
-                 'timestamp': timestamp,
-                 'src_ip': host,
-                 'src_port': port,
-                 'dest_ip': localip,
-                 'dest_port': localport,
-                 'data': payloads
-             })
+
 
         if verbose:
             logger.setLevel(logging.DEBUG)
