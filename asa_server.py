@@ -12,6 +12,7 @@ from socketserver import ThreadingMixIn
 from http.server import SimpleHTTPRequestHandler
 import ike_server
 import datetime
+import json
 
 
 class NonBlockingHTTPServer(ThreadingMixIn, HTTPServer):
@@ -39,7 +40,8 @@ class hpflogger:
         if self.hpc:
             if level in ['debug', 'info'] and not self.verbose:
                 return
-            self.hpc.publish(self.hpfchannel, "["+self.serverid+"] ["+level+"] ["+datetime.datetime.now().isoformat() +"] "  + str(message))
+            message['serverid']= self.serverid
+            self.hpc.publish(self.hpfchannel, json.dumps(message))
 
 
 def header_split(h):
@@ -49,6 +51,12 @@ def header_split(h):
 class WebLogicHandler(SimpleHTTPRequestHandler):
     logger = None
     hpfl = None
+    data = None
+    timestamp=None
+    req_classification = "request"
+    vulnerability = None
+    payload=None
+    req_category="info"
 
     protocol_version = "HTTP/1.1"
 
@@ -123,15 +131,18 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         data_len = int(self.headers.get('Content-length', 0))
-        data = self.rfile.read(data_len) if data_len else b''
+        self.data = self.rfile.read(data_len) if data_len else b''
         body = self.RESPONSE
-        if self.EXPLOIT_STRING in data:
-            xml = ElementTree.fromstring(data)
+        if self.EXPLOIT_STRING in self.data:
+            xml = ElementTree.fromstring(self.data)
             payloads = []
             for x in xml.iter('host-scan-reply'):
                 payloads.append(x.text)
-
-            self.alert_function(self.client_address[0], self.client_address[1], payloads)
+            self.alert_function(self.client_address[0], self.client_address[1], self.connection.getsockname()[0], self.connection.getsockname()[1], payloads)
+            self.req_classification= "exploit"
+            self.vulnerability = "CVE-2018-0101"
+            self.payload=payloads
+            self.req_category="critical"
 
         elif self.path == '/':
             self.redirect('/+webvpn+/index.html')
@@ -174,19 +185,38 @@ class WebLogicHandler(SimpleHTTPRequestHandler):
             return self.send_file('wrong_url.html', 404)
 
     def log_message(self, format, *args):
+        postdata=None
+        if self.data:
+            postdata=self.data.decode("utf-8")
+
         self.logger.debug("%s - - [%s] %s" %
                           (self.client_address[0],
                            self.log_date_time_string(),
                            format % args))
-        self.hpfl.log('debug', "%s - - [%s] %s" %
-                          (self.client_address[0],
-                           self.log_date_time_string(),
-                           format % args))
+
+        # hpfeeds logging with more information
+        rheaders = {}
+        for k,v in self.headers._headers:
+            rheaders[k] = v
+        self.hpfl.log(self.req_category, {
+                      'classification': self.req_classification,
+                      'timestamp': self.timestamp,
+                      'vulnerability': self.vulnerability,
+                      'src_ip': self.client_address[0],
+                      'src_port': self.client_address[1],
+                      'dest_ip': self.connection.getsockname()[0],
+                      'dest_port': self.connection.getsockname()[1],
+                      'raw_requestline':  self.raw_requestline.decode("utf-8"),
+                      'header': rheaders,
+                      'postdata': postdata,
+                      'exploitpayload': self.payload
+                    })
 
     def handle_one_request(self):
         """Handle a single HTTP request.
         Overriden to not send 501 errors
         """
+        self.timestamp=datetime.datetime.now().isoformat()
         self.close_connection = True
         try:
             self.raw_requestline = self.rfile.readline(65537)
@@ -239,7 +269,7 @@ if __name__ == '__main__':
     @click.option('--hpfident', default=os.environ.get('HPFEEDS_IDENT'), help='HPFeeds Ident')
     @click.option('--hpfsecret', default=os.environ.get('HPFEEDS_SECRET'), help='HPFeeds Secret')
     @click.option('--hpfchannel', default=os.environ.get('HPFEEDS_CHANNEL'), help='HPFeeds Channel')
-    @click.option('--serverid', default=os.environ.get('SERVERID'), help='Verbose logging')
+    @click.option('--serverid', default=os.environ.get('SERVERID'), help='ServerID/ServerName')
 
 
     def start(host, port, ike_port, enable_ssl, cert, verbose, hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid):
@@ -250,18 +280,15 @@ if __name__ == '__main__':
 
         hpfl=hpflogger(hpfserver, hpfport, hpfident, hpfsecret, hpfchannel, serverid, verbose)
 
-        def alert(cls, host, port, payloads):
+        def alert(cls, host, port, localip, localport, payloads):
             logger.critical({
-                'src': host,
-                'spt': port,
-                'data': payloads,
+                'src_ip': host,
+                'src_port': port,
+                'dest_ip': localip,
+                'dest_port': localport,
+                'exploitdata': payloads
             })
-            #log to hpfeeds
-            hpfl.log("critical", {
-                 'src': host,
-                 'spt': port,
-                 'data': payloads,
-             })
+
 
         if verbose:
             logger.setLevel(logging.DEBUG)
@@ -293,14 +320,12 @@ if __name__ == '__main__':
             httpd.socket = ssl.wrap_socket(httpd.socket, certfile=cert, server_side=True)
 
         logger.info('Starting server on port {:d}/tcp, use <Ctrl-C> to stop'.format(port))
-        hpfl.log('info', 'Starting server on port {:d}/tcp, use <Ctrl-C> to stop'.format(port))
 
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:
             pass
         logger.info('Stopping server.')
-        hpfl.log('info', 'Stopping server.')
 
         httpd.server_close()
 
